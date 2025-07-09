@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""
+Printer Detection Module for PRig
+Detects and configures USB photo printers (Canon SELPHY and DNP QW410).
+"""
+
+import re
+import subprocess
+import logging
+from dataclasses import dataclass
+from typing import List, Optional, Dict
+from pathlib import Path
+
+
+@dataclass
+class PrinterInfo:
+    """Information about a detected printer."""
+    name: str
+    model: str
+    vendor: str
+    device_uri: str
+    cups_name: str
+    ppd_file: str
+    usb_device: str
+    vendor_id: str
+    product_id: str
+
+
+class PrinterDetector:
+    """Detects and configures USB photo printers."""
+    
+    SUPPORTED_PRINTERS = {
+        # Canon SELPHY printers
+        '04a9:327b': {
+            'name': 'Canon SELPHY CP1300',
+            'model': 'Canon SELPHY CP1300',
+            'vendor': 'Canon',
+            'ppd': 'gutenprint://canon-selphy-cp1300/expert'
+        },
+        '04a9:327c': {
+            'name': 'Canon SELPHY CP1500',
+            'model': 'Canon SELPHY CP1500', 
+            'vendor': 'Canon',
+            'ppd': 'gutenprint://canon-selphy-cp1500/expert'
+        },
+        '04a9:327a': {
+            'name': 'Canon SELPHY CP910',
+            'model': 'Canon SELPHY CP910',
+            'vendor': 'Canon',
+            'ppd': 'gutenprint://canon-selphy-cp910/expert'
+        },
+        # DNP QW410 printer
+        '1343:0003': {
+            'name': 'DNP QW410',
+            'model': 'DNP QW410',
+            'vendor': 'DNP',
+            'ppd': 'dnp-qw410.ppd'
+        }
+    }
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        
+    def get_connected_printers(self) -> List[PrinterInfo]:
+        """Get all connected supported USB printers."""
+        printers = []
+        
+        # Get USB devices
+        usb_devices = self._get_usb_devices()
+        
+        for device in usb_devices:
+            if device['vendor_product'] in self.SUPPORTED_PRINTERS:
+                printer_info = self._create_printer_info(device)
+                if printer_info:
+                    printers.append(printer_info)
+                    
+        return printers
+        
+    def _get_usb_devices(self) -> List[Dict]:
+        """Get USB device information using lsusb."""
+        devices = []
+        
+        try:
+            result = subprocess.run(['lsusb'], capture_output=True, text=True)
+            
+            for line in result.stdout.splitlines():
+                # Parse lsusb output: Bus 001 Device 004: ID 04a9:327b Canon, Inc. 
+                match = re.search(r'Bus (\d+) Device (\d+): ID ([0-9a-f]{4}):([0-9a-f]{4}) (.+)', line)
+                if match:
+                    devices.append({
+                        'bus': match.group(1),
+                        'device': match.group(2),
+                        'vendor_id': match.group(3),
+                        'product_id': match.group(4),
+                        'vendor_product': f"{match.group(3)}:{match.group(4)}",
+                        'description': match.group(5)
+                    })
+                    
+        except Exception as e:
+            self.logger.error(f"Error getting USB devices: {e}")
+            
+        return devices
+        
+    def _create_printer_info(self, device: Dict) -> Optional[PrinterInfo]:
+        """Create PrinterInfo object from USB device information."""
+        vendor_product = device['vendor_product']
+        
+        if vendor_product not in self.SUPPORTED_PRINTERS:
+            return None
+            
+        printer_config = self.SUPPORTED_PRINTERS[vendor_product]
+        
+        # Create device URI
+        device_uri = f"usb://{printer_config['vendor']}/{printer_config['name'].replace(' ', '%20')}"
+        
+        # Create CUPS printer name (safe for system use)
+        cups_name = f"prig_{printer_config['name'].lower().replace(' ', '_')}"
+        
+        return PrinterInfo(
+            name=printer_config['name'],
+            model=printer_config['model'],
+            vendor=printer_config['vendor'],
+            device_uri=device_uri,
+            cups_name=cups_name,
+            ppd_file=printer_config['ppd'],
+            usb_device=f"Bus {device['bus']} Device {device['device']}",
+            vendor_id=device['vendor_id'],
+            product_id=device['product_id']
+        )
+        
+    def get_printer_capabilities(self, printer: PrinterInfo) -> Dict:
+        """Get printer capabilities and supported options."""
+        capabilities = {
+            'paper_sizes': [],
+            'media_types': [],
+            'quality_levels': [],
+            'color_modes': []
+        }
+        
+        try:
+            # Query printer options using lpoptions
+            result = subprocess.run(['lpoptions', '-p', printer.cups_name, '-l'], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                capabilities = self._parse_printer_options(result.stdout)
+                
+        except Exception as e:
+            self.logger.error(f"Error getting printer capabilities: {e}")
+            
+        # Set default capabilities based on printer model
+        if printer.model.startswith('Canon'):
+            capabilities.update({
+                'paper_sizes': ['4x6', '5x7'],
+                'media_types': ['PhotoPaper', 'GlossyPhoto'],
+                'quality_levels': ['Draft', 'Normal', 'High'],
+                'color_modes': ['RGB', 'sRGB']
+            })
+        elif printer.model.startswith('DNP'):
+            capabilities.update({
+                'paper_sizes': ['4x6', '5x7', '6x8'],
+                'media_types': ['Ribbon'],
+                'quality_levels': ['Standard', 'Fine'],
+                'color_modes': ['RGB']
+            })
+            
+        return capabilities
+        
+    def _parse_printer_options(self, options_output: str) -> Dict:
+        """Parse lpoptions output to extract capabilities."""
+        capabilities = {
+            'paper_sizes': [],
+            'media_types': [],
+            'quality_levels': [],
+            'color_modes': []
+        }
+        
+        for line in options_output.splitlines():
+            line = line.strip()
+            
+            if line.startswith('PageSize/'):
+                # Extract paper sizes
+                sizes = re.findall(r'(\w+x\w+)', line)
+                capabilities['paper_sizes'].extend(sizes)
+                
+            elif line.startswith('MediaType/'):
+                # Extract media types
+                types = re.findall(r'(\w+)', line.split(':')[1] if ':' in line else '')
+                capabilities['media_types'].extend(types)
+                
+            elif line.startswith('Quality/'):
+                # Extract quality levels
+                qualities = re.findall(r'(\w+)', line.split(':')[1] if ':' in line else '')
+                capabilities['quality_levels'].extend(qualities)
+                
+            elif line.startswith('ColorModel/'):
+                # Extract color modes
+                modes = re.findall(r'(\w+)', line.split(':')[1] if ':' in line else '')
+                capabilities['color_modes'].extend(modes)
+                
+        return capabilities
+        
+    def install_printer_drivers(self) -> bool:
+        """Install necessary printer drivers."""
+        try:
+            # Install CUPS and Gutenprint drivers
+            subprocess.run(['apt-get', 'update'], check=True)
+            subprocess.run(['apt-get', 'install', '-y', 'cups', 'printer-driver-gutenprint'], check=True)
+            
+            # Install DNP QW410 specific drivers if available
+            self._install_dnp_drivers()
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error installing printer drivers: {e}")
+            return False
+            
+    def _install_dnp_drivers(self):
+        """Install DNP QW410 specific drivers."""
+        try:
+            # Create DNP QW410 PPD file
+            ppd_content = self._get_dnp_ppd_content()
+            ppd_path = Path('/usr/share/cups/model/dnp-qw410.ppd')
+            
+            with open(ppd_path, 'w') as f:
+                f.write(ppd_content)
+                
+            self.logger.info("DNP QW410 PPD file installed")
+            
+        except Exception as e:
+            self.logger.error(f"Error installing DNP drivers: {e}")
+            
+    def _get_dnp_ppd_content(self) -> str:
+        """Get DNP QW410 PPD file content."""
+        return '''*PPD-Adobe: "4.3"
+*FormatVersion: "4.3"
+*FileVersion: "1.0"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName: "DNP-QW410.PPD"
+*Manufacturer: "DNP"
+*Product: "(QW410)"
+*cupsVersion: 1.4
+*cupsManualCopies: False
+*cupsModelNumber: 0
+*cupsFilter: "application/vnd.cups-raster 0 rastertoqw410"
+*ModelName: "DNP QW410"
+*ShortNickName: "DNP QW410"
+*NickName: "DNP QW410"
+*PSVersion: "(3010.000) 0"
+*LanguageLevel: "3"
+*ColorDevice: True
+*DefaultColorSpace: RGB
+*FileSystem: False
+*Throughput: "1"
+*LandscapeOrientation: Plus90
+*VariablePaperSize: False
+*TTRasterizer: Type42
+
+*OpenUI *PageSize/Media Size: PickOne
+*OrderDependency: 10 AnySetup *PageSize
+*DefaultPageSize: w288h432
+*PageSize w288h432/4x6": "<</PageSize[288 432]/ImagingBBox null>>setpagedevice"
+*PageSize w360h504/5x7": "<</PageSize[360 504]/ImagingBBox null>>setpagedevice"
+*PageSize w432h576/6x8": "<</PageSize[432 576]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageSize
+
+*OpenUI *PageRegion: PickOne
+*OrderDependency: 10 AnySetup *PageRegion
+*DefaultPageRegion: w288h432
+*PageRegion w288h432/4x6": "<</PageSize[288 432]/ImagingBBox null>>setpagedevice"
+*PageRegion w360h504/5x7": "<</PageSize[360 504]/ImagingBBox null>>setpagedevice"
+*PageRegion w432h576/6x8": "<</PageSize[432 576]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageRegion
+
+*DefaultImageableArea: w288h432
+*ImageableArea w288h432/4x6": "0.0 0.0 288.0 432.0"
+*ImageableArea w360h504/5x7": "0.0 0.0 360.0 504.0"
+*ImageableArea w432h576/6x8": "0.0 0.0 432.0 576.0"
+
+*DefaultPaperDimension: w288h432
+*PaperDimension w288h432/4x6": "288 432"
+*PaperDimension w360h504/5x7": "360 504"
+*PaperDimension w432h576/6x8": "432 576"
+
+*OpenUI *Quality/Print Quality: PickOne
+*OrderDependency: 10 AnySetup *Quality
+*DefaultQuality: Standard
+*Quality Standard/Standard: ""
+*Quality Fine/Fine: ""
+*CloseUI: *Quality
+
+*% End of PPD file
+'''
+
+    def test_printer_communication(self, printer: PrinterInfo) -> bool:
+        """Test if printer is responding to commands."""
+        try:
+            # Send a simple query to the printer
+            result = subprocess.run(['lpstat', '-p', printer.cups_name], 
+                                  capture_output=True, text=True)
+            
+            return result.returncode == 0 and 'idle' in result.stdout.lower()
+            
+        except Exception as e:
+            self.logger.error(f"Error testing printer communication: {e}")
+            return False

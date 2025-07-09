@@ -1,0 +1,19 @@
+[Unit]
+Description=PRig Printer Test on Startup
+Documentation=https://github.com/aasimo13/PRig
+After=multi-user.target cups.service network.target
+Wants=cups.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/printer-test/printer_test.py
+User=pi
+Group=lpadmin
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=60
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+# PRig - Automatic Printer Test Rig
+# udev rules for detecting USB printer connections ONLY
+# This prevents network/internet printer detection
+
+# Canon SELPHY Printers (vendor ID 04a9) - USB ONLY
+SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", ACTION=="add", ATTRS{product}=="*SELPHY*", ATTR{busnum}=="?*", RUN+="/bin/systemctl start printer-test@%k.service"
+SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", ACTION=="remove", ATTRS{product}=="*SELPHY*", RUN+="/bin/systemctl stop printer-test@%k.service"
+
+# DNP QW410 Printer (vendor ID 1343, product ID 0003) - USB ONLY  
+SUBSYSTEM=="usb", ATTR{idVendor}=="1343", ATTR{idProduct}=="0003", ACTION=="add", ATTR{busnum}=="?*", RUN+="/bin/systemctl start printer-test@%k.service"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1343", ATTR{idProduct}=="0003", ACTION=="remove", RUN+="/bin/systemctl stop printer-test@%k.service"
+
+# Generic USB printer class (fallback for other supported printers) - USB ONLY
+SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="07", ACTION=="add", ATTR{busnum}=="?*", KERNELS=="?*", RUN+="/bin/systemctl start printer-test@%k.service"
+SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="07", ACTION=="remove", KERNELS=="?*", RUN+="/bin/systemctl stop printer-test@%k.service"
+
+# Block network printer detection
+SUBSYSTEM=="net", ACTION=="add", GOTO="printer_test_end"
+SUBSYSTEM=="bluetooth", ACTION=="add", GOTO="printer_test_end"
+
+LABEL="printer_test_end"

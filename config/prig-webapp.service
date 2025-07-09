@@ -1,0 +1,28 @@
+[Unit]
+Description=PRig Web Application
+Documentation=https://github.com/aasimo13/PRig
+After=multi-user.target network.target cups.service
+Wants=cups.service network.target
+
+[Service]
+Type=simple
+User=pi
+Group=lpadmin
+WorkingDirectory=/opt/printer-test
+ExecStart=/usr/bin/python3 /opt/printer-test/web_app.py
+Environment=PYTHONUNBUFFERED=1
+Environment=FLASK_ENV=production
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/prig /etc/prig /tmp
+
+[Install]
+WantedBy=multi-user.target
