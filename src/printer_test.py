@@ -137,7 +137,44 @@ class PrinterTestRig:
         subprocess.run(['lpoptions', '-d', printer.cups_name], 
                       capture_output=True, text=True)
         
+        # Verify printer is ready
+        self._verify_printer_status(printer)
+        
         self.logger.info(f"Printer {printer.name} configured successfully")
+    
+    def _verify_printer_status(self, printer: PrinterInfo) -> None:
+        """Verify printer status and readiness."""
+        try:
+            # Check printer status
+            result = subprocess.run(['lpstat', '-p', printer.cups_name], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                status = result.stdout.strip()
+                self.logger.info(f"Printer status: {status}")
+                
+                if 'disabled' in status.lower():
+                    self.logger.warning(f"Printer {printer.cups_name} is disabled")
+                    # Try to enable it
+                    subprocess.run(['cupsenable', printer.cups_name], 
+                                 capture_output=True, text=True)
+                    
+            # Check if printer accepts jobs
+            result = subprocess.run(['lpstat', '-a', printer.cups_name], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                accept_status = result.stdout.strip()
+                self.logger.info(f"Job acceptance status: {accept_status}")
+                
+                if 'not accepting' in accept_status.lower():
+                    self.logger.warning(f"Printer {printer.cups_name} not accepting jobs")
+                    # Try to make it accept jobs
+                    subprocess.run(['cupsaccept', printer.cups_name], 
+                                 capture_output=True, text=True)
+                    
+        except Exception as e:
+            self.logger.warning(f"Could not verify printer status: {e}")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
@@ -220,25 +257,47 @@ class PrinterTestRig:
         start_time = time.time()
         
         while time.time() - start_time < timeout:
-            result = subprocess.run(['lpstat', '-W', 'completed', '-o', job_id], 
-                                  capture_output=True, text=True)
-            
-            if result.returncode == 0 and job_id in result.stdout:
-                self.logger.info(f"Print job {job_id} completed successfully")
-                return True
-                
-            # Check if job failed
+            # Check job status
             result = subprocess.run(['lpstat', '-o', job_id], 
                                   capture_output=True, text=True)
             
             if result.returncode != 0:
                 self.logger.error(f"Print job {job_id} failed or not found")
+                # Check CUPS error log for more details
+                self._check_cups_error_log(job_id)
+                return False
+            
+            # Parse job status
+            job_status = result.stdout.strip()
+            self.logger.info(f"Job {job_id} status: {job_status}")
+            
+            # Check if job is completed
+            if 'completed' in job_status.lower():
+                self.logger.info(f"Print job {job_id} completed successfully")
+                return True
+            
+            # Check if job failed
+            if any(status in job_status.lower() for status in ['aborted', 'canceled', 'stopped']):
+                self.logger.error(f"Print job {job_id} failed with status: {job_status}")
+                self._check_cups_error_log(job_id)
                 return False
                 
             time.sleep(2)
             
         self.logger.error(f"Print job {job_id} timed out")
         return False
+    
+    def _check_cups_error_log(self, job_id: str) -> None:
+        """Check CUPS error log for job-specific errors."""
+        try:
+            result = subprocess.run(['grep', job_id, '/var/log/cups/error_log'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                self.logger.error(f"CUPS error log for job {job_id}:")
+                for line in result.stdout.splitlines()[-5:]:  # Last 5 lines
+                    self.logger.error(f"  {line}")
+        except Exception as e:
+            self.logger.warning(f"Could not check CUPS error log: {e}")
 
 
 def main():
