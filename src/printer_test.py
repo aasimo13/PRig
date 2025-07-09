@@ -259,12 +259,19 @@ class PrinterTestRig:
     
     def get_test_images(self, printer: PrinterInfo) -> List[Tuple[Path, str]]:
         """Get test images - use local test image."""
-        # Use local test image
-        local_image_path = Path(__file__).parent.parent / "test_images" / "test_image.jpg"
+        # Try multiple possible locations for the local test image
+        possible_paths = [
+            Path(__file__).parent.parent / "test_images" / "test_image.jpg",  # ../test_images/test_image.jpg
+            Path.cwd() / "test_images" / "test_image.jpg",  # ./test_images/test_image.jpg
+            Path.home() / "PRig" / "test_images" / "test_image.jpg",  # ~/PRig/test_images/test_image.jpg
+        ]
         
-        if local_image_path.exists():
-            self.logger.info(f"Using local test image: {local_image_path}")
-            return [(local_image_path, "Local Test Image")]
+        for local_image_path in possible_paths:
+            if local_image_path.exists():
+                self.logger.info(f"Using local test image: {local_image_path}")
+                return [(local_image_path, "Local Test Image")]
+        
+        self.logger.warning("Local test image not found, trying URL download")
         
         # Fallback to URL download if local image doesn't exist
         if self.test_image_url:
@@ -335,19 +342,18 @@ class PrinterTestRig:
         """Get printer-specific print options."""
         options = []
         
-        # Use basic options that should work with raw driver
-        options.extend([
-            'media=4x6',
-            'ColorModel=RGB'
-        ])
-        
-        # Add printer-specific options if needed
-        if printer.model.startswith('Canon'):
+        # Use minimal options for DNP printers with raw driver
+        if printer.model.startswith('DNP'):
+            # DNP printers with raw driver need minimal options
             options.extend([
-                'quality=5'
+                'media=w288h432',  # 4x6 size in points
+                'fit-to-page'
             ])
-        elif printer.model.startswith('DNP'):
+        else:
+            # Canon and other printers
             options.extend([
+                'media=4x6',
+                'ColorModel=RGB',
                 'quality=5'
             ])
             
@@ -391,12 +397,27 @@ class PrinterTestRig:
     def _check_cups_error_log(self, job_id: str) -> None:
         """Check CUPS error log for job-specific errors."""
         try:
-            result = subprocess.run(['grep', job_id, '/var/log/cups/error_log'], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout:
-                self.logger.error(f"CUPS error log for job {job_id}:")
-                for line in result.stdout.splitlines()[-5:]:  # Last 5 lines
-                    self.logger.error(f"  {line}")
+            # Check multiple possible log locations
+            log_files = [
+                '/var/log/cups/error_log',
+                '/var/log/cups/access_log',
+                '/var/log/cups/page_log'
+            ]
+            
+            for log_file in log_files:
+                if Path(log_file).exists():
+                    result = subprocess.run(['grep', job_id, log_file], 
+                                          capture_output=True, text=True)
+                    if result.returncode == 0 and result.stdout:
+                        self.logger.error(f"CUPS {log_file} for job {job_id}:")
+                        for line in result.stdout.splitlines()[-3:]:  # Last 3 lines
+                            self.logger.error(f"  {line}")
+                            
+            # Also check general printer status
+            result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.logger.info(f"All printer status:\n{result.stdout}")
+                
         except Exception as e:
             self.logger.warning(f"Could not check CUPS error log: {e}")
 
