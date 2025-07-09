@@ -284,6 +284,11 @@ class PrinterDetector:
         try:
             self.logger.info("Installing printer drivers...")
             
+            # Fix any broken dpkg state first
+            self.logger.info("Checking and fixing package system...")
+            subprocess.run(['dpkg', '--configure', '-a'], capture_output=True, text=True, check=False)
+            subprocess.run(['apt-get', '-f', 'install'], capture_output=True, text=True, check=False)
+            
             # Update package list
             result = subprocess.run(['apt-get', 'update'], capture_output=True, text=True, check=False)
             if result.returncode != 0:
