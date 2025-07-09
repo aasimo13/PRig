@@ -81,7 +81,7 @@ class PrinterDetector:
         devices = []
         
         try:
-            result = subprocess.run(['lsusb'], capture_output=True, text=True)
+            result = subprocess.run(['lsusb'], capture_output=True, text=True, check=False)
             
             for line in result.stdout.splitlines():
                 # Parse lsusb output: Bus 001 Device 004: ID 04a9:327b Canon, Inc. 
@@ -140,7 +140,7 @@ class PrinterDetector:
         try:
             # Query printer options using lpoptions
             result = subprocess.run(['lpoptions', '-p', printer.cups_name, '-l'], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, check=False)
             
             if result.returncode == 0:
                 capabilities = self._parse_printer_options(result.stdout)
@@ -204,8 +204,8 @@ class PrinterDetector:
         """Install necessary printer drivers."""
         try:
             # Install CUPS and Gutenprint drivers
-            subprocess.run(['apt-get', 'update'], check=True)
-            subprocess.run(['apt-get', 'install', '-y', 'cups', 'printer-driver-gutenprint'], check=True)
+            subprocess.run(['apt-get', 'update'], check=False)
+            subprocess.run(['apt-get', 'install', '-y', 'cups', 'printer-driver-gutenprint'], check=False)
             
             # Install DNP QW410 specific drivers if available
             self._install_dnp_drivers()
@@ -299,7 +299,7 @@ class PrinterDetector:
         try:
             # Send a simple query to the printer
             result = subprocess.run(['lpstat', '-p', printer.cups_name], 
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, check=False)
             
             return result.returncode == 0 and 'idle' in result.stdout.lower()
             
