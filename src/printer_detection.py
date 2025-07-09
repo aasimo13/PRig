@@ -7,6 +7,7 @@ Detects and configures USB photo printers (Canon SELPHY and DNP QW410).
 import re
 import subprocess
 import logging
+import platform
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 from pathlib import Path
@@ -37,7 +38,7 @@ class PrinterDetector:
             'vendor': 'Canon',
             'ppd': 'gutenprint://canon-selphy-cp1300/expert'
         },
-        '04a9:327c': {
+        '04a9:3302': {
             'name': 'Canon SELPHY CP1500',
             'model': 'Canon SELPHY CP1500', 
             'vendor': 'Canon',
@@ -49,12 +50,18 @@ class PrinterDetector:
             'vendor': 'Canon',
             'ppd': 'gutenprint://canon-selphy-cp910/expert'
         },
-        # DNP QW410 printer
+        # DNP Photo Printers
         '1343:0003': {
             'name': 'DNP QW410',
             'model': 'DNP QW410',
             'vendor': 'DNP',
             'ppd': 'dnp-qw410.ppd'
+        },
+        '1452:9201': {
+            'name': 'DNP Photo Printer',
+            'model': 'DNP Photo Printer',
+            'vendor': 'DNP',
+            'ppd': 'dnp-photo-printer.ppd'
         }
     }
     
@@ -77,28 +84,81 @@ class PrinterDetector:
         return printers
         
     def _get_usb_devices(self) -> List[Dict]:
-        """Get USB device information using lsusb."""
+        """Get USB device information using platform-specific commands."""
         devices = []
         
         try:
-            result = subprocess.run(['lsusb'], capture_output=True, text=True, check=False)
-            
-            for line in result.stdout.splitlines():
-                # Parse lsusb output: Bus 001 Device 004: ID 04a9:327b Canon, Inc. 
-                match = re.search(r'Bus (\d+) Device (\d+): ID ([0-9a-f]{4}):([0-9a-f]{4}) (.+)', line)
-                if match:
-                    devices.append({
-                        'bus': match.group(1),
-                        'device': match.group(2),
-                        'vendor_id': match.group(3),
-                        'product_id': match.group(4),
-                        'vendor_product': f"{match.group(3)}:{match.group(4)}",
-                        'description': match.group(5)
-                    })
+            if platform.system() == "Darwin":  # macOS
+                devices = self._get_macos_usb_devices()
+            else:  # Linux
+                devices = self._get_linux_usb_devices()
                     
         except Exception as e:
             self.logger.error(f"Error getting USB devices: {e}")
             
+        return devices
+    
+    def _get_linux_usb_devices(self) -> List[Dict]:
+        """Get USB device information using lsusb (Linux)."""
+        devices = []
+        
+        result = subprocess.run(['lsusb'], capture_output=True, text=True, check=False)
+        
+        for line in result.stdout.splitlines():
+            # Parse lsusb output: Bus 001 Device 004: ID 04a9:327b Canon, Inc. 
+            match = re.search(r'Bus (\d+) Device (\d+): ID ([0-9a-f]{4}):([0-9a-f]{4}) (.+)', line)
+            if match:
+                devices.append({
+                    'bus': match.group(1),
+                    'device': match.group(2),
+                    'vendor_id': match.group(3),
+                    'product_id': match.group(4),
+                    'vendor_product': f"{match.group(3)}:{match.group(4)}",
+                    'description': match.group(5)
+                })
+                
+        return devices
+    
+    def _get_macos_usb_devices(self) -> List[Dict]:
+        """Get USB device information using system_profiler (macOS)."""
+        devices = []
+        
+        result = subprocess.run(['system_profiler', 'SPUSBDataType'], 
+                              capture_output=True, text=True, check=False)
+        
+        # Parse system_profiler output
+        current_device = {}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            
+            if 'Product ID:' in line:
+                match = re.search(r'Product ID: 0x([0-9a-f]{4})', line)
+                if match:
+                    current_device['product_id'] = match.group(1)
+                    
+            elif 'Vendor ID:' in line:
+                match = re.search(r'Vendor ID: 0x([0-9a-f]{4})', line)
+                if match:
+                    current_device['vendor_id'] = match.group(1)
+                    
+            elif 'Manufacturer:' in line:
+                match = re.search(r'Manufacturer: (.+)', line)
+                if match:
+                    current_device['description'] = match.group(1)
+                    
+            # If we have both vendor and product ID, create device entry
+            if 'vendor_id' in current_device and 'product_id' in current_device:
+                vendor_product = f"{current_device['vendor_id']}:{current_device['product_id']}"
+                devices.append({
+                    'bus': '001',  # Default bus for macOS
+                    'device': '001',  # Default device for macOS
+                    'vendor_id': current_device['vendor_id'],
+                    'product_id': current_device['product_id'],
+                    'vendor_product': vendor_product,
+                    'description': current_device.get('description', 'Unknown Device')
+                })
+                current_device = {}  # Reset for next device
+                
         return devices
         
     def _create_printer_info(self, device: Dict) -> Optional[PrinterInfo]:
