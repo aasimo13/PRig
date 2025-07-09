@@ -34,9 +34,15 @@ class PrinterTestRig:
         
     def run(self) -> None:
         """Main execution method."""
-        self.logger.info("PRig starting - scanning for USB printers...")
+        self.logger.info("PRig starting - installing drivers and scanning for USB printers...")
         
         try:
+            # Install drivers first
+            self.logger.info("Installing printer drivers...")
+            if not self.detector.install_printer_drivers():
+                self.logger.error("Failed to install printer drivers")
+                sys.exit(1)
+            
             printers = self.detector.get_connected_printers()
             
             if not printers:
@@ -128,6 +134,20 @@ class PrinterTestRig:
                 if (device.vendor_id == printer.vendor_id and 
                     device.product_id == printer.product_id):
                     return True
+            
+            # Also check if device file exists (Linux specific)
+            if hasattr(printer, 'device_path') and printer.device_path:
+                if Path(printer.device_path).exists():
+                    return True
+            
+            # Double check CUPS printer status
+            result = subprocess.run(['lpstat', '-p', printer.cups_name], 
+                                  capture_output=True, text=True, check=False)
+            if result.returncode == 0:
+                status = result.stdout.strip().lower()
+                # If CUPS says printer is disabled or offline, it's likely disconnected
+                if 'disabled' in status or 'offline' in status:
+                    return False
                     
             return False
             

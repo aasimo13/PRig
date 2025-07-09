@@ -102,20 +102,39 @@ class PrinterDetector:
         """Get USB device information using lsusb (Linux)."""
         devices = []
         
+        # First check if lsusb is available
+        result = subprocess.run(['which', 'lsusb'], capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            self.logger.warning("lsusb not found, installing usbutils...")
+            subprocess.run(['apt-get', 'update'], capture_output=True, text=True, check=False)
+            subprocess.run(['apt-get', 'install', '-y', 'usbutils'], capture_output=True, text=True, check=False)
+        
         result = subprocess.run(['lsusb'], capture_output=True, text=True, check=False)
+        
+        if result.returncode != 0:
+            self.logger.error(f"lsusb command failed: {result.stderr}")
+            return devices
         
         for line in result.stdout.splitlines():
             # Parse lsusb output: Bus 001 Device 004: ID 04a9:327b Canon, Inc. 
             match = re.search(r'Bus (\d+) Device (\d+): ID ([0-9a-f]{4}):([0-9a-f]{4}) (.+)', line)
             if match:
-                devices.append({
-                    'bus': match.group(1),
-                    'device': match.group(2),
-                    'vendor_id': match.group(3),
-                    'product_id': match.group(4),
-                    'vendor_product': f"{match.group(3)}:{match.group(4)}",
-                    'description': match.group(5)
-                })
+                vendor_product = f"{match.group(3)}:{match.group(4)}"
+                
+                # Verify device still exists by checking /dev/bus/usb/
+                device_path = f"/dev/bus/usb/{match.group(1).zfill(3)}/{match.group(2).zfill(3)}"
+                if Path(device_path).exists():
+                    devices.append({
+                        'bus': match.group(1),
+                        'device': match.group(2),
+                        'vendor_id': match.group(3),
+                        'product_id': match.group(4),
+                        'vendor_product': vendor_product,
+                        'description': match.group(5),
+                        'device_path': device_path
+                    })
+                else:
+                    self.logger.debug(f"USB device {vendor_product} no longer exists at {device_path}")
                 
         return devices
     
@@ -263,12 +282,42 @@ class PrinterDetector:
     def install_printer_drivers(self) -> bool:
         """Install necessary printer drivers."""
         try:
-            # Install CUPS and Gutenprint drivers
-            subprocess.run(['apt-get', 'update'], check=False)
-            subprocess.run(['apt-get', 'install', '-y', 'cups', 'printer-driver-gutenprint'], check=False)
+            self.logger.info("Installing printer drivers...")
             
-            # Install DNP QW410 specific drivers if available
+            # Update package list
+            result = subprocess.run(['apt-get', 'update'], capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                self.logger.warning(f"apt-get update failed: {result.stderr}")
+            
+            # Install essential packages
+            packages = [
+                'cups',
+                'cups-client', 
+                'cups-daemon',
+                'printer-driver-gutenprint',
+                'printer-driver-all',
+                'usbutils',
+                'libcups2-dev',
+                'cups-filters',
+                'cups-pdf'
+            ]
+            
+            for package in packages:
+                self.logger.info(f"Installing {package}...")
+                result = subprocess.run(['apt-get', 'install', '-y', package], 
+                                      capture_output=True, text=True, check=False)
+                if result.returncode != 0:
+                    self.logger.warning(f"Failed to install {package}: {result.stderr}")
+            
+            # Start CUPS service
+            subprocess.run(['systemctl', 'start', 'cups'], capture_output=True, text=True, check=False)
+            subprocess.run(['systemctl', 'enable', 'cups'], capture_output=True, text=True, check=False)
+            
+            # Install DNP QW410 specific drivers
             self._install_dnp_drivers()
+            
+            # Install Canon SELPHY drivers
+            self._install_canon_drivers()
             
             return True
             
@@ -290,6 +339,88 @@ class PrinterDetector:
             
         except Exception as e:
             self.logger.error(f"Error installing DNP drivers: {e}")
+    
+    def _install_canon_drivers(self):
+        """Install Canon SELPHY specific drivers."""
+        try:
+            self.logger.info("Installing Canon SELPHY drivers...")
+            
+            # Create Canon SELPHY PPD files
+            canon_models = ['CP1300', 'CP1500', 'CP910']
+            
+            for model in canon_models:
+                ppd_content = self._get_canon_ppd_content(model)
+                ppd_path = Path(f'/usr/share/cups/model/canon-selphy-{model.lower()}.ppd')
+                
+                with open(ppd_path, 'w') as f:
+                    f.write(ppd_content)
+                    
+                self.logger.info(f"Canon SELPHY {model} PPD file installed")
+            
+            # Update CUPS to recognize new PPDs
+            subprocess.run(['systemctl', 'reload', 'cups'], capture_output=True, text=True, check=False)
+            
+        except Exception as e:
+            self.logger.error(f"Error installing Canon drivers: {e}")
+    
+    def _get_canon_ppd_content(self, model: str) -> str:
+        """Get Canon SELPHY PPD file content."""
+        return f'''*PPD-Adobe: "4.3"
+*FormatVersion: "4.3"
+*FileVersion: "1.0"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName: "CANON-{model}.PPD"
+*Manufacturer: "Canon"
+*Product: "({model})"
+*cupsVersion: 1.4
+*cupsManualCopies: False
+*cupsModelNumber: 0
+*cupsFilter: "application/vnd.cups-raster 0 rastertocanon"
+*ModelName: "Canon SELPHY {model}"
+*ShortNickName: "Canon SELPHY {model}"
+*NickName: "Canon SELPHY {model}"
+*PSVersion: "(3010.000) 0"
+*LanguageLevel: "3"
+*ColorDevice: True
+*DefaultColorSpace: RGB
+*FileSystem: False
+*Throughput: "1"
+*LandscapeOrientation: Plus90
+*VariablePaperSize: False
+*TTRasterizer: Type42
+
+*OpenUI *PageSize/Media Size: PickOne
+*OrderDependency: 10 AnySetup *PageSize
+*DefaultPageSize: w288h432
+*PageSize w288h432/4x6": "<</PageSize[288 432]/ImagingBBox null>>setpagedevice"
+*PageSize w360h504/5x7": "<</PageSize[360 504]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageSize
+
+*OpenUI *PageRegion: PickOne
+*OrderDependency: 10 AnySetup *PageRegion
+*DefaultPageRegion: w288h432
+*PageRegion w288h432/4x6": "<</PageSize[288 432]/ImagingBBox null>>setpagedevice"
+*PageRegion w360h504/5x7": "<</PageSize[360 504]/ImagingBBox null>>setpagedevice"
+*CloseUI: *PageRegion
+
+*DefaultImageableArea: w288h432
+*ImageableArea w288h432/4x6": "0.0 0.0 288.0 432.0"
+*ImageableArea w360h504/5x7": "0.0 0.0 360.0 504.0"
+
+*DefaultPaperDimension: w288h432
+*PaperDimension w288h432/4x6": "288 432"
+*PaperDimension w360h504/5x7": "360 504"
+
+*OpenUI *Quality/Print Quality: PickOne
+*OrderDependency: 10 AnySetup *Quality
+*DefaultQuality: Standard
+*Quality Standard/Standard: ""
+*Quality High/High: ""
+*CloseUI: *Quality
+
+*% End of PPD file
+'''
             
     def _get_dnp_ppd_content(self) -> str:
         """Get DNP QW410 PPD file content."""
