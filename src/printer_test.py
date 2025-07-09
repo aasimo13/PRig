@@ -142,16 +142,19 @@ class PrinterTestRig:
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
         try:
+            # Check if image file exists
+            if not image_path.exists():
+                self.logger.error(f"Image file not found: {image_path}")
+                return False
+            
             # Get printer-specific print options
             options = self.get_print_options(printer)
             
+            # Build print command with basic options
             cmd = [
                 'lp',
                 '-d', printer.cups_name,
-                '-o', 'fit-to-page',
-                '-o', 'media=4x6',
-                '-o', 'ColorModel=RGB',
-                '-o', 'quality=5'
+                '-o', 'fit-to-page'
             ]
             
             # Add printer-specific options
@@ -160,14 +163,30 @@ class PrinterTestRig:
                 
             cmd.append(str(image_path))
             
+            # Log the full command for debugging
+            self.logger.info(f"Print command: {' '.join(cmd)}")
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0:
-                job_id = result.stdout.strip().split()[-1]
-                self.logger.info(f"Print job {job_id} queued successfully")
-                return self.wait_for_print_completion(job_id)
+                # Extract job ID from output
+                output_lines = result.stdout.strip().split('\n')
+                job_id = None
+                for line in output_lines:
+                    if 'request id is' in line:
+                        job_id = line.split('request id is')[1].strip()
+                        break
+                
+                if job_id:
+                    self.logger.info(f"Print job {job_id} queued successfully")
+                    return self.wait_for_print_completion(job_id)
+                else:
+                    self.logger.warning(f"Print job queued but no job ID found. Output: {result.stdout}")
+                    return True  # Assume success if no job ID but command succeeded
             else:
-                self.logger.error(f"Print command failed: {result.stderr}")
+                self.logger.error(f"Print command failed with return code {result.returncode}")
+                self.logger.error(f"STDOUT: {result.stdout}")
+                self.logger.error(f"STDERR: {result.stderr}")
                 return False
                 
         except Exception as e:
@@ -178,17 +197,20 @@ class PrinterTestRig:
         """Get printer-specific print options."""
         options = []
         
+        # Use basic options that should work with raw driver
+        options.extend([
+            'media=4x6',
+            'ColorModel=RGB'
+        ])
+        
+        # Add printer-specific options if needed
         if printer.model.startswith('Canon'):
             options.extend([
-                'PageSize=4x6',
-                'MediaType=PhotoPaper',
-                'Quality=High'
+                'quality=5'
             ])
         elif printer.model.startswith('DNP'):
             options.extend([
-                'PageSize=4x6',
-                'MediaType=Ribbon',
-                'Quality=Fine'
+                'quality=5'
             ])
             
         return options
