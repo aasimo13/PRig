@@ -9,6 +9,7 @@ import os
 import time
 import logging
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -20,11 +21,14 @@ from utils import setup_logging, get_printer_capabilities
 class PrinterTestRig:
     """Main class for the automatic printer test rig."""
     
-    def __init__(self):
+    def __init__(self, test_image_url: Optional[str] = None):
         self.logger = setup_logging()
         self.detector = PrinterDetector()
         self.image_generator = TestImageGenerator()
         self.test_results = []
+        self.test_image_url = test_image_url
+        self.temp_dir = Path("/tmp/prig_test_images")
+        self.temp_dir.mkdir(exist_ok=True)
         
     def run(self) -> None:
         """Main execution method."""
@@ -53,8 +57,8 @@ class PrinterTestRig:
             # Setup printer in CUPS
             self.setup_printer_in_cups(printer)
             
-            # Generate test images once
-            test_images = self.image_generator.generate_test_suite(printer)
+            # Get test images (from URL or generated)
+            test_images = self.get_test_images(printer)
             
             cycle_count = 0
             
@@ -175,6 +179,55 @@ class PrinterTestRig:
                     
         except Exception as e:
             self.logger.warning(f"Could not verify printer status: {e}")
+    
+    def download_test_image(self, url: str) -> Path:
+        """Download test image from URL."""
+        try:
+            # Convert Google Drive sharing link to direct download link
+            if "drive.google.com" in url and "/file/d/" in url:
+                file_id = url.split("/file/d/")[1].split("/")[0]
+                url = f"https://drive.google.com/uc?export=download&id={file_id}"
+                self.logger.info(f"Converted Google Drive link to direct download URL")
+            
+            self.logger.info(f"Downloading test image from {url}")
+            
+            # Determine file extension from URL or default to JPG
+            if url.lower().endswith(('.jpg', '.jpeg')):
+                filename = "test_image.jpg"
+            elif url.lower().endswith('.png'):
+                filename = "test_image.png"
+            else:
+                filename = "test_image.jpg"  # Default to JPG
+                
+            image_path = self.temp_dir / filename
+            
+            # Download the image
+            urllib.request.urlretrieve(url, image_path)
+            
+            self.logger.info(f"Test image downloaded to {image_path}")
+            return image_path
+            
+        except Exception as e:
+            self.logger.error(f"Failed to download test image from {url}: {e}")
+            raise
+    
+    def get_test_images(self, printer: PrinterInfo) -> List[Tuple[Path, str]]:
+        """Get test images - either from URL or generated."""
+        if self.test_image_url:
+            # Use single image from URL
+            try:
+                image_path = self.download_test_image(self.test_image_url)
+                return [(image_path, "Test Image from URL")]
+            except Exception as e:
+                self.logger.error(f"Failed to get test image from URL: {e}")
+                self.logger.info("Falling back to generated test images")
+        
+        # Fall back to generated test images
+        try:
+            return self.image_generator.generate_test_suite(printer)
+        except Exception as e:
+            self.logger.error(f"Failed to generate test images: {e}")
+            raise Exception("No test images available")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
@@ -305,8 +358,14 @@ def main():
     if os.geteuid() != 0:
         print("This program must be run as root for proper USB device access")
         sys.exit(1)
-        
-    rig = PrinterTestRig()
+    
+    # Check for test image URL argument
+    test_image_url = None
+    if len(sys.argv) > 1:
+        test_image_url = sys.argv[1]
+        print(f"Using test image from URL: {test_image_url}")
+    
+    rig = PrinterTestRig(test_image_url=test_image_url)
     rig.run()
 
 
