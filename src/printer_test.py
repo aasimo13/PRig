@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 from printer_detection import PrinterDetector, PrinterInfo
 from test_image_generator import TestImageGenerator
+from test_image_data import save_embedded_test_image
 from utils import setup_logging, get_printer_capabilities
 
 
@@ -158,6 +159,16 @@ class PrinterTestRig:
     def setup_printer_in_cups(self, printer: PrinterInfo) -> None:
         """Configure printer in CUPS for testing."""
         self.logger.info(f"Setting up printer {printer.name} in CUPS")
+        
+        # Check if there are existing working printer configurations
+        existing_printer = self._find_existing_printer(printer)
+        if existing_printer:
+            self.logger.info(f"Using existing printer configuration: {existing_printer}")
+            printer.cups_name = existing_printer
+            # Verify printer is ready
+            self._verify_printer_status(printer)
+            self.logger.info(f"Printer {printer.name} configured successfully using existing setup")
+            return
         
         # Remove existing printer if it exists
         subprocess.run(['lpadmin', '-x', printer.cups_name], 
@@ -308,8 +319,17 @@ class PrinterTestRig:
             raise
     
     def get_test_images(self, printer: PrinterInfo) -> List[Tuple[Path, str]]:
-        """Get test images - use local test image."""
-        # Try multiple possible locations for the local test image
+        """Get test images - use embedded test image."""
+        # Use embedded test image (no download required)
+        try:
+            embedded_image_path = self.temp_dir / "embedded_test_image.jpg"
+            save_embedded_test_image(embedded_image_path)
+            self.logger.info(f"Using embedded test image: {embedded_image_path}")
+            return [(embedded_image_path, "Embedded Test Image")]
+        except Exception as e:
+            self.logger.error(f"Failed to create embedded test image: {e}")
+            
+        # Fallback to local files
         possible_paths = [
             Path(__file__).parent.parent / "test_images" / "test_image.jpg",  # ../test_images/test_image.jpg
             Path.cwd() / "test_images" / "test_image.jpg",  # ./test_images/test_image.jpg
@@ -323,7 +343,7 @@ class PrinterTestRig:
         
         self.logger.warning("Local test image not found, trying URL download")
         
-        # Fallback to URL download if local image doesn't exist
+        # Final fallback to URL download
         if self.test_image_url:
             try:
                 image_path = self.download_test_image(self.test_image_url)
@@ -332,7 +352,7 @@ class PrinterTestRig:
                 self.logger.error(f"Failed to get test image from URL: {e}")
                 raise Exception("Could not download test image from URL")
         
-        raise Exception("No test image available (neither local nor URL)")
+        raise Exception("No test image available")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
@@ -521,6 +541,38 @@ class PrinterTestRig:
             
         except Exception as e:
             self.logger.error(f"Error resetting printer: {e}")
+    
+    def _find_existing_printer(self, printer: PrinterInfo) -> Optional[str]:
+        """Find existing working printer configuration that matches this printer type."""
+        try:
+            # Get all printers
+            result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                return None
+            
+            # Look for printers that match our printer type and are idle
+            for line in result.stdout.splitlines():
+                if 'printer' in line and 'idle' in line:
+                    # Extract printer name
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        printer_name = parts[1]
+                        
+                        # Check if this printer matches our type
+                        if printer.model.startswith('DNP') and 'qw410' in printer_name.lower():
+                            # Prefer 4x6 size for DNP printers
+                            if '4x6' in printer_name:
+                                return printer_name
+                            elif 'QW410' in printer_name and '4x6' not in printer_name:
+                                return printer_name
+                        elif printer.model.startswith('Canon') and ('canon' in printer_name.lower() or 'cp1500' in printer_name.lower()):
+                            return printer_name
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error finding existing printer: {e}")
+            return None
 
 
 def main():
