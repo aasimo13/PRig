@@ -258,9 +258,16 @@ class PrinterTestRig:
             raise
     
     def get_test_images(self, printer: PrinterInfo) -> List[Tuple[Path, str]]:
-        """Get test images - either from URL or generated."""
+        """Get test images - use local test image."""
+        # Use local test image
+        local_image_path = Path(__file__).parent.parent / "test_images" / "test_image.jpg"
+        
+        if local_image_path.exists():
+            self.logger.info(f"Using local test image: {local_image_path}")
+            return [(local_image_path, "Local Test Image")]
+        
+        # Fallback to URL download if local image doesn't exist
         if self.test_image_url:
-            # Use single image from URL
             try:
                 image_path = self.download_test_image(self.test_image_url)
                 return [(image_path, "Test Image from URL")]
@@ -268,9 +275,7 @@ class PrinterTestRig:
                 self.logger.error(f"Failed to get test image from URL: {e}")
                 raise Exception("Could not download test image from URL")
         
-        # Only generate test images if no URL provided
-        self.logger.error("No test image URL provided")
-        raise Exception("No test image URL provided")
+        raise Exception("No test image available (neither local nor URL)")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
