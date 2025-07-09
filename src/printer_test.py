@@ -356,15 +356,9 @@ def main():
         print("This program must be run as root for proper USB device access")
         sys.exit(1)
     
-    # Check for test image URL argument
-    test_image_url = None
-    if len(sys.argv) > 1:
-        test_image_url = sys.argv[1]
-        print(f"Using test image from URL: {test_image_url}")
-    else:
-        print("Usage: python3 printer_test.py <image_url>")
-        print("Example: python3 printer_test.py 'https://drive.google.com/file/d/1rkatDCicnLhBlmG08WBGQgF-sbzEKxXK/view?usp=sharing'")
-        sys.exit(1)
+    # Use your specific test image URL
+    test_image_url = "https://drive.google.com/file/d/1rkatDCicnLhBlmG08WBGQgF-sbzEKxXK/view?usp=sharing"
+    print(f"Using test image from URL: {test_image_url}")
     
     rig = PrinterTestRig(test_image_url=test_image_url)
     rig.run()
