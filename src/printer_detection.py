@@ -36,32 +36,32 @@ class PrinterDetector:
             'name': 'Canon SELPHY CP1300',
             'model': 'Canon SELPHY CP1300',
             'vendor': 'Canon',
-            'ppd': 'gutenprint://canon-selphy-cp1300/expert'
+            'ppd': 'raw'
         },
         '04a9:3302': {
             'name': 'Canon SELPHY CP1500',
             'model': 'Canon SELPHY CP1500', 
             'vendor': 'Canon',
-            'ppd': 'gutenprint://canon-selphy-cp1500/expert'
+            'ppd': 'raw'
         },
         '04a9:327a': {
             'name': 'Canon SELPHY CP910',
             'model': 'Canon SELPHY CP910',
             'vendor': 'Canon',
-            'ppd': 'gutenprint://canon-selphy-cp910/expert'
+            'ppd': 'raw'
         },
         # DNP Photo Printers
         '1343:0003': {
             'name': 'DNP QW410',
             'model': 'DNP QW410',
             'vendor': 'DNP',
-            'ppd': 'dnp-qw410.ppd'
+            'ppd': 'raw'
         },
         '1452:9201': {
             'name': 'DNP Photo Printer',
             'model': 'DNP Photo Printer',
             'vendor': 'DNP',
-            'ppd': 'dnp-photo-printer.ppd'
+            'ppd': 'raw'
         }
     }
     
