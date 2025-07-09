@@ -10,6 +10,8 @@ import time
 import logging
 import subprocess
 import urllib.request
+import urllib.parse
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -180,13 +182,53 @@ class PrinterTestRig:
         except Exception as e:
             self.logger.warning(f"Could not verify printer status: {e}")
     
+    def _validate_url(self, url: str) -> bool:
+        """Validate URL format and scheme."""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            return parsed.scheme in ['http', 'https'] and parsed.netloc
+        except Exception:
+            return False
+    
+    def _convert_google_drive_url(self, url: str) -> str:
+        """Convert Google Drive sharing URL to direct download URL."""
+        # Handle both old and new Google Drive URL formats
+        if "drive.google.com" not in url:
+            raise ValueError("Not a Google Drive URL")
+        
+        # Extract file ID using regex to handle various URL formats
+        patterns = [
+            r'/file/d/([a-zA-Z0-9_-]+)',  # Standard sharing link
+            r'id=([a-zA-Z0-9_-]+)',       # Direct link format
+            r'/d/([a-zA-Z0-9_-]+)',       # Short format
+        ]
+        
+        file_id = None
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                file_id = match.group(1)
+                break
+        
+        if not file_id:
+            raise ValueError("Could not extract file ID from Google Drive URL")
+        
+        # Validate file ID format
+        if not re.match(r'^[a-zA-Z0-9_-]+$', file_id):
+            raise ValueError("Invalid file ID format")
+        
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+    
     def download_test_image(self, url: str) -> Path:
         """Download test image from URL."""
         try:
+            # Validate URL format
+            if not self._validate_url(url):
+                raise ValueError(f"Invalid URL format: {url}")
+            
             # Convert Google Drive sharing link to direct download link
-            if "drive.google.com" in url and "/file/d/" in url:
-                file_id = url.split("/file/d/")[1].split("/")[0]
-                url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            if "drive.google.com" in url:
+                url = self._convert_google_drive_url(url)
                 self.logger.info(f"Converted Google Drive link to direct download URL")
             
             self.logger.info(f"Downloading test image from {url}")
@@ -203,6 +245,10 @@ class PrinterTestRig:
             
             # Download the image
             urllib.request.urlretrieve(url, image_path)
+            
+            # Verify the downloaded file exists and has content
+            if not image_path.exists() or image_path.stat().st_size == 0:
+                raise Exception("Downloaded file is empty or does not exist")
             
             self.logger.info(f"Test image downloaded to {image_path}")
             return image_path

@@ -8,6 +8,7 @@ import re
 import subprocess
 import logging
 import platform
+import urllib.parse
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 from pathlib import Path
@@ -170,8 +171,15 @@ class PrinterDetector:
             
         printer_config = self.SUPPORTED_PRINTERS[vendor_product]
         
-        # Create device URI
-        device_uri = f"usb://{printer_config['vendor']}/{printer_config['name'].replace(' ', '%20')}"
+        # Create device URI with proper URL encoding
+        vendor = urllib.parse.quote(printer_config['vendor'], safe='')
+        name = urllib.parse.quote(printer_config['name'], safe='')
+        device_uri = f"usb://{vendor}/{name}"
+        
+        # Validate the constructed URI
+        if not self._validate_device_uri(device_uri):
+            self.logger.error(f"Invalid device URI generated: {device_uri}")
+            return None
         
         # Create CUPS printer name (safe for system use)
         cups_name = f"prig_{printer_config['name'].lower().replace(' ', '_')}"
@@ -259,6 +267,17 @@ class PrinterDetector:
                 capabilities['color_modes'].extend(modes)
                 
         return capabilities
+        
+    def _validate_device_uri(self, uri: str) -> bool:
+        """Validate device URI format."""
+        try:
+            parsed = urllib.parse.urlparse(uri)
+            return (parsed.scheme == 'usb' and 
+                   parsed.netloc == '' and 
+                   parsed.path.count('/') >= 2 and
+                   len(parsed.path.split('/')) >= 3)
+        except Exception:
+            return False
         
     def install_printer_drivers(self) -> bool:
         """Install necessary printer drivers."""
