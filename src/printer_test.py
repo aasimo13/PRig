@@ -220,14 +220,11 @@ class PrinterTestRig:
                 return [(image_path, "Test Image from URL")]
             except Exception as e:
                 self.logger.error(f"Failed to get test image from URL: {e}")
-                self.logger.info("Falling back to generated test images")
+                raise Exception("Could not download test image from URL")
         
-        # Fall back to generated test images
-        try:
-            return self.image_generator.generate_test_suite(printer)
-        except Exception as e:
-            self.logger.error(f"Failed to generate test images: {e}")
-            raise Exception("No test images available")
+        # Only generate test images if no URL provided
+        self.logger.error("No test image URL provided")
+        raise Exception("No test image URL provided")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""
@@ -364,6 +361,10 @@ def main():
     if len(sys.argv) > 1:
         test_image_url = sys.argv[1]
         print(f"Using test image from URL: {test_image_url}")
+    else:
+        print("Usage: python3 printer_test.py <image_url>")
+        print("Example: python3 printer_test.py 'https://drive.google.com/file/d/1rkatDCicnLhBlmG08WBGQgF-sbzEKxXK/view?usp=sharing'")
+        sys.exit(1)
     
     rig = PrinterTestRig(test_image_url=test_image_url)
     rig.run()
