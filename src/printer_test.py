@@ -76,14 +76,34 @@ class PrinterTestRig:
                         return
                     
                     self.logger.info(f"Printing test: {description} (cycle {cycle_count})")
-                    success = self.print_image(printer, image_path)
                     
-                    if success:
-                        self.logger.info(f"Successfully printed: {description}")
-                    else:
-                        self.logger.error(f"Failed to print: {description}")
-                        # If print fails, wait a bit and check connection
-                        time.sleep(10)
+                    # Retry printing up to 3 times
+                    max_retries = 3
+                    success = False
+                    
+                    for attempt in range(max_retries):
+                        if attempt > 0:
+                            self.logger.info(f"Retry attempt {attempt} for {description}")
+                            # Wait and try to clear any stuck jobs
+                            time.sleep(5)
+                            subprocess.run(['cancel', '-a', printer.cups_name], 
+                                         capture_output=True, text=True)
+                            time.sleep(2)
+                        
+                        success = self.print_image(printer, image_path)
+                        
+                        if success:
+                            self.logger.info(f"Successfully printed: {description}")
+                            break
+                        else:
+                            self.logger.error(f"Failed to print: {description} (attempt {attempt + 1}/{max_retries})")
+                            if attempt < max_retries - 1:
+                                time.sleep(10)
+                    
+                    if not success:
+                        self.logger.error(f"All {max_retries} attempts failed for: {description}")
+                        # Wait longer before continuing
+                        time.sleep(20)
                         continue
                     
                     # Wait between prints to avoid printer overload
@@ -123,6 +143,10 @@ class PrinterTestRig:
         subprocess.run(['lpadmin', '-x', printer.cups_name], 
                       capture_output=True, text=True)
         
+        # Cancel any existing jobs for this printer
+        subprocess.run(['cancel', '-a', printer.cups_name], 
+                      capture_output=True, text=True)
+        
         # Add printer to CUPS
         cmd = [
             'lpadmin',
@@ -139,6 +163,12 @@ class PrinterTestRig:
         if result.returncode != 0:
             raise Exception(f"Failed to setup printer in CUPS: {result.stderr}")
             
+        # Enable and start accepting jobs
+        subprocess.run(['cupsenable', printer.cups_name], 
+                      capture_output=True, text=True)
+        subprocess.run(['cupsaccept', printer.cups_name], 
+                      capture_output=True, text=True)
+        
         # Set printer as default temporarily
         subprocess.run(['lpoptions', '-d', printer.cups_name], 
                       capture_output=True, text=True)
@@ -292,6 +322,15 @@ class PrinterTestRig:
                 self.logger.error(f"Image file not found: {image_path}")
                 return False
             
+            # Check printer status before printing
+            if not self._check_printer_ready(printer):
+                self.logger.warning(f"Printer {printer.name} not ready, attempting to fix...")
+                self._reset_printer(printer)
+                time.sleep(3)
+                if not self._check_printer_ready(printer):
+                    self.logger.error(f"Printer {printer.name} still not ready after reset")
+                    return False
+            
             # Get printer-specific print options
             options = self.get_print_options(printer)
             
@@ -420,6 +459,48 @@ class PrinterTestRig:
                 
         except Exception as e:
             self.logger.warning(f"Could not check CUPS error log: {e}")
+    
+    def _check_printer_ready(self, printer: PrinterInfo) -> bool:
+        """Check if printer is ready to accept jobs."""
+        try:
+            # Check if printer is idle and accepting jobs
+            result = subprocess.run(['lpstat', '-p', printer.cups_name], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                return False
+            
+            status = result.stdout.strip().lower()
+            return ('idle' in status and 'enabled' in status and 
+                   'unable to send data' not in status and 
+                   'waiting for printer' not in status)
+            
+        except Exception as e:
+            self.logger.error(f"Error checking printer readiness: {e}")
+            return False
+    
+    def _reset_printer(self, printer: PrinterInfo) -> None:
+        """Reset printer by canceling jobs and restarting."""
+        try:
+            self.logger.info(f"Resetting printer {printer.name}")
+            
+            # Cancel all jobs for this printer
+            subprocess.run(['cancel', '-a', printer.cups_name], 
+                          capture_output=True, text=True)
+            
+            # Disable and re-enable printer
+            subprocess.run(['cupsdisable', printer.cups_name], 
+                          capture_output=True, text=True)
+            time.sleep(2)
+            subprocess.run(['cupsenable', printer.cups_name], 
+                          capture_output=True, text=True)
+            
+            # Make sure it's accepting jobs
+            subprocess.run(['cupsaccept', printer.cups_name], 
+                          capture_output=True, text=True)
+            
+        except Exception as e:
+            self.logger.error(f"Error resetting printer: {e}")
 
 
 def main():
