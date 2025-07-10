@@ -61,7 +61,7 @@ def get_cups_printers():
 
 def create_test_image():
     """Create a simple test image"""
-    test_image_path = Path('/tmp/prig_test.jpg')
+    test_image_path = Path('/tmp/prig_test.png')
     
     # Try to copy existing test image first
     existing_paths = [

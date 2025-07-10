@@ -33,7 +33,7 @@ def get_idle_printers():
 
 def create_simple_image():
     """Create a simple 4x6 image that should work"""
-    image_path = Path('/tmp/simple_test.jpg')
+    image_path = Path('/tmp/simple_test.png')
     
     # Create a simple solid color image in 4x6 format
     try:

@@ -294,13 +294,13 @@ class PrinterTestRig:
             
             self.logger.info(f"Downloading test image from {url}")
             
-            # Determine file extension from URL or default to JPG
+            # Determine file extension from URL or default to PNG
             if url.lower().endswith(('.jpg', '.jpeg')):
                 filename = "test_image.jpg"
             elif url.lower().endswith('.png'):
                 filename = "test_image.png"
             else:
-                filename = "test_image.jpg"  # Default to JPG
+                filename = "test_image.png"  # Default to PNG
                 
             image_path = self.temp_dir / filename
             
@@ -319,40 +319,16 @@ class PrinterTestRig:
             raise
     
     def get_test_images(self, printer: PrinterInfo) -> List[Tuple[Path, str]]:
-        """Get test images - use embedded test image."""
-        # Use embedded test image (no download required)
+        """Get test images - use only embedded test image."""
+        # Use embedded test image only (no download or generation)
         try:
-            embedded_image_path = self.temp_dir / "embedded_test_image.jpg"
+            embedded_image_path = self.temp_dir / "embedded_test_image.png"
             save_embedded_test_image(embedded_image_path)
-            self.logger.info(f"Using embedded test image: {embedded_image_path}")
-            return [(embedded_image_path, "Embedded Test Image")]
+            self.logger.info(f"Using embedded PNG test image: {embedded_image_path}")
+            return [(embedded_image_path, "4x6 PNG Test Image")]
         except Exception as e:
             self.logger.error(f"Failed to create embedded test image: {e}")
-            
-        # Fallback to local files
-        possible_paths = [
-            Path(__file__).parent.parent / "test_images" / "test_image.jpg",  # ../test_images/test_image.jpg
-            Path.cwd() / "test_images" / "test_image.jpg",  # ./test_images/test_image.jpg
-            Path.home() / "PRig" / "test_images" / "test_image.jpg",  # ~/PRig/test_images/test_image.jpg
-        ]
-        
-        for local_image_path in possible_paths:
-            if local_image_path.exists():
-                self.logger.info(f"Using local test image: {local_image_path}")
-                return [(local_image_path, "Local Test Image")]
-        
-        self.logger.warning("Local test image not found, trying URL download")
-        
-        # Final fallback to URL download
-        if self.test_image_url:
-            try:
-                image_path = self.download_test_image(self.test_image_url)
-                return [(image_path, "Test Image from URL")]
-            except Exception as e:
-                self.logger.error(f"Failed to get test image from URL: {e}")
-                raise Exception("Could not download test image from URL")
-        
-        raise Exception("No test image available")
+            raise Exception("Could not create embedded test image")
         
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print a test image to the specified printer."""

@@ -80,8 +80,8 @@ class TestImageGenerator:
             text_color = (0, 0, 0) if i < 4 else (255, 255, 255)
             draw.text((x, y), label, font=font, fill=text_color, anchor="mm")
             
-        path = self.temp_dir / "color_bars.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "color_bars.png"
+        img.save(path, "PNG")
         return path, "Color Bars Test"
         
     def create_color_gradients(self) -> Tuple[Path, str]:
@@ -107,8 +107,8 @@ class TestImageGenerator:
             color_val = int(255 * x / self.image_size[0])
             draw.line([(x, gradient_height * 2), (x, self.image_size[1])], fill=(0, 0, color_val))
             
-        path = self.temp_dir / "color_gradients.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "color_gradients.png"
+        img.save(path, "PNG")
         return path, "RGB Gradients Test"
         
     def create_primary_colors(self) -> Tuple[Path, str]:
@@ -150,8 +150,8 @@ class TestImageGenerator:
             draw.text((x1 + patch_width//2, y1 + patch_height//2), name, 
                      font=font, fill=text_color, anchor="mm")
             
-        path = self.temp_dir / "primary_colors.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "primary_colors.png"
+        img.save(path, "PNG")
         return path, "Primary Colors Test"
         
     def create_resolution_test(self) -> Tuple[Path, str]:
@@ -179,8 +179,8 @@ class TestImageGenerator:
             y2 = center_y + int(400 * np.sin(np.radians(angle)))
             draw.line([x1, y1, x2, y2], fill=(0, 0, 0), width=2)
             
-        path = self.temp_dir / "resolution_test.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "resolution_test.png"
+        img.save(path, "PNG")
         return path, "Resolution Test Pattern"
         
     def create_fine_details(self) -> Tuple[Path, str]:
@@ -203,8 +203,8 @@ class TestImageGenerator:
                                    offset_x + x + size * 2, offset_y + y + size * 2], 
                                   fill=(0, 0, 0))
                                   
-        path = self.temp_dir / "fine_details.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "fine_details.png"
+        img.save(path, "PNG")
         return path, "Fine Details Test"
         
     def create_text_clarity(self) -> Tuple[Path, str]:
@@ -226,8 +226,8 @@ class TestImageGenerator:
                      font=font, fill=(0, 0, 0))
             y_offset += size + 20
             
-        path = self.temp_dir / "text_clarity.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "text_clarity.png"
+        img.save(path, "PNG")
         return path, "Text Clarity Test"
         
     def create_grayscale_gradient(self) -> Tuple[Path, str]:
@@ -249,8 +249,8 @@ class TestImageGenerator:
             draw.rectangle([x1, self.image_size[1] - 200, x2, self.image_size[1]], 
                           fill=(gray_val, gray_val, gray_val))
             
-        path = self.temp_dir / "grayscale_gradient.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "grayscale_gradient.png"
+        img.save(path, "PNG")
         return path, "Grayscale Gradient Test"
         
     def create_contrast_test(self) -> Tuple[Path, str]:
@@ -267,8 +267,8 @@ class TestImageGenerator:
                 draw.rectangle([x + square_size, y + square_size, 
                                x + square_size * 2, y + square_size * 2], fill=(0, 0, 0))
                                
-        path = self.temp_dir / "contrast_test.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "contrast_test.png"
+        img.save(path, "PNG")
         return path, "Contrast Test Pattern"
         
     def create_edge_bleeding_test(self) -> Tuple[Path, str]:
@@ -290,8 +290,8 @@ class TestImageGenerator:
             x = i * section_width
             draw.line([(x, 0), (x, self.image_size[1])], fill=(255, 255, 255), width=2)
             
-        path = self.temp_dir / "edge_bleeding.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "edge_bleeding.png"
+        img.save(path, "PNG")
         return path, "Edge Bleeding Test"
         
     def create_saturation_test(self) -> Tuple[Path, str]:
@@ -315,8 +315,8 @@ class TestImageGenerator:
                 color = tuple(int(c * saturation) for c in base_color)
                 draw.line([(x, y1), (x, y2)], fill=color)
                 
-        path = self.temp_dir / "saturation_test.jpg"
-        img.save(path, "JPEG", quality=95)
+        path = self.temp_dir / "saturation_test.png"
+        img.save(path, "PNG")
         return path, "Color Saturation Test"
         
     def cleanup(self):

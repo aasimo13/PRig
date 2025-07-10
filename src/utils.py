@@ -141,8 +141,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     default_config = {
         'log_level': 'INFO',
         'test_images': {
-            'formats': ['JPEG'],
-            'quality': 95,
+            'formats': ['PNG'],
             'resolution': [1800, 1200]
         },
         'printer_settings': {
