@@ -52,16 +52,19 @@ class WebControlledPrinterRig:
         
     def start_continuous_test(self, printer_info: dict, test_id: str):
         """Start continuous testing for a printer."""
-        from test_image_generator import TestImageGenerator
+        from test_image_data import save_embedded_test_image
+        import tempfile
         
         printer = PrinterInfo(**printer_info)
-        generator = TestImageGenerator()
         
         # Setup printer in CUPS
         self.setup_printer_in_cups(printer)
         
-        # Generate test images
-        test_images = generator.generate_test_suite(printer)
+        # Use only embedded PNG test image
+        temp_dir = Path(tempfile.mkdtemp())
+        test_image_path = temp_dir / "embedded_test_image.png"
+        save_embedded_test_image(test_image_path)
+        test_images = [(test_image_path, "4x6 PNG Test Image")]
         
         cycle_count = 0
         stop_flag = stop_flags.get(test_id, {'stop': False})
@@ -168,12 +171,19 @@ class WebControlledPrinterRig:
     def print_image(self, printer: PrinterInfo, image_path: Path) -> bool:
         """Print an image."""
         try:
+            # Get printer-specific print options
+            options = self.get_print_options(printer)
+            
             cmd = [
                 'lp', '-d', printer.cups_name,
-                '-o', 'fit-to-page', '-o', 'media=4x6',
-                '-o', 'ColorModel=RGB', '-o', 'quality=5',
-                str(image_path)
+                '-o', 'fit-to-page'
             ]
+            
+            # Add printer-specific options
+            for option in options:
+                cmd.extend(['-o', option])
+                
+            cmd.append(str(image_path))
             
             result = subprocess.run(cmd, capture_output=True, text=True)
             
@@ -208,6 +218,27 @@ class WebControlledPrinterRig:
             time.sleep(2)
             
         return False
+        
+    def get_print_options(self, printer: PrinterInfo) -> List[str]:
+        """Get printer-specific print options."""
+        options = []
+        
+        # Use minimal options for DNP printers with raw driver
+        if printer.model.startswith('DNP'):
+            # DNP printers with raw driver need minimal options
+            options.extend([
+                'media=w288h432',  # 4x6 size in points
+                'fit-to-page'
+            ])
+        else:
+            # Canon and other printers
+            options.extend([
+                'media=4x6',
+                'ColorModel=RGB',
+                'quality=5'
+            ])
+            
+        return options
         
     def is_printer_connected(self, printer: PrinterInfo) -> bool:
         """Check if printer is connected."""
@@ -293,7 +324,7 @@ def api_printers():
 @app.route('/api/start_test', methods=['POST'])
 def api_start_test():
     """Start a test for a specific printer."""
-    data = request.json
+    data = request.json or {}
     printer_info = data.get('printer')
     
     if not printer_info:
@@ -325,7 +356,7 @@ def api_start_test():
 @app.route('/api/stop_test', methods=['POST'])
 def api_stop_test():
     """Stop a running test."""
-    data = request.json
+    data = request.json or {}
     test_id = data.get('test_id')
     
     if not test_id or test_id not in stop_flags:
@@ -370,6 +401,9 @@ def api_config():
     elif request.method == 'POST':
         try:
             new_config = request.json
+            if not new_config:
+                return jsonify({'error': 'No configuration data provided'}), 400
+                
             # Save configuration
             from utils import save_config
             
